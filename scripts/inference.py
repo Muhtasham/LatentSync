@@ -44,6 +44,8 @@ def main(config, args):
     scheduler = DDIMScheduler.from_pretrained("configs")
     print("Initialized scheduler:", scheduler)
 
+    print(f"Config model cross_attention_dim: {config.model.cross_attention_dim}")
+    
     if config.model.cross_attention_dim == 768:
         whisper_model_path = "checkpoints/whisper/small.pt"
     elif config.model.cross_attention_dim == 384:
@@ -97,7 +99,7 @@ def main(config, args):
     print(f"Initial seed: {torch.initial_seed()}")
 
     print("Starting pipeline inference...")
-    result = pipeline(
+    pipeline(
         video_path=args.video_path,
         audio_path=args.audio_path,
         video_out_path=args.video_out_path,
@@ -111,7 +113,6 @@ def main(config, args):
         temp_dir=args.temp_dir,
     )
     print("Pipeline inference completed.")
-    print("Pipeline result:", result)
 
 
 if __name__ == "__main__":
@@ -133,8 +134,6 @@ if __name__ == "__main__":
         print(f"  {arg}: {value}")
 
     config = OmegaConf.load(args.unet_config_path)
-    print("Loaded config:")
-    print(config)
 
     try:
         main(config, args)

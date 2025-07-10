@@ -14,6 +14,7 @@
 
 import argparse
 import os
+import traceback
 from omegaconf import OmegaConf
 import torch
 from diffusers import AutoencoderKL, DDIMScheduler
@@ -37,8 +38,11 @@ def main(config, args):
     print(f"Input video path: {args.video_path}")
     print(f"Input audio path: {args.audio_path}")
     print(f"Loaded checkpoint path: {args.inference_ckpt_path}")
+    print(f"Output video will be saved to: {args.video_out_path}")
+    print(f"Using dtype: {dtype}")
 
     scheduler = DDIMScheduler.from_pretrained("configs")
+    print("Initialized scheduler:", scheduler)
 
     if config.model.cross_attention_dim == 768:
         whisper_model_path = "checkpoints/whisper/small.pt"
@@ -53,18 +57,22 @@ def main(config, args):
         num_frames=config.data.num_frames,
         audio_feat_length=config.data.audio_feat_length,
     )
+    print("Audio encoder initialized:", audio_encoder)
 
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=dtype)
     vae.config.scaling_factor = 0.18215
     vae.config.shift_factor = 0
+    print("VAE initialized:", vae)
 
     unet, _ = UNet3DConditionModel.from_pretrained(
         OmegaConf.to_container(config.model),
         args.inference_ckpt_path,
         device="cpu",
     )
+    print("UNet initialized:", unet)
 
     unet = unet.to(dtype=dtype)
+    print(f"UNet moved to dtype: {dtype}")
 
     pipeline = LipsyncPipeline(
         vae=vae,
@@ -72,12 +80,14 @@ def main(config, args):
         unet=unet,
         scheduler=scheduler,
     ).to("cuda")
+    print("Pipeline initialized:", pipeline)
 
     # use DeepCache
     if args.enable_deepcache:
         helper = DeepCacheSDHelper(pipe=pipeline)
         helper.set_params(cache_interval=3, cache_branch_id=0)
         helper.enable()
+        print("DeepCache enabled with cache_interval=3, cache_branch_id=0")
 
     if args.seed != -1:
         set_seed(args.seed)
@@ -86,7 +96,8 @@ def main(config, args):
 
     print(f"Initial seed: {torch.initial_seed()}")
 
-    pipeline(
+    print("Starting pipeline inference...")
+    result = pipeline(
         video_path=args.video_path,
         audio_path=args.audio_path,
         video_out_path=args.video_out_path,
@@ -99,6 +110,8 @@ def main(config, args):
         mask_image_path=config.data.mask_image_path,
         temp_dir=args.temp_dir,
     )
+    print("Pipeline inference completed.")
+    print("Pipeline result:", result)
 
 
 if __name__ == "__main__":
@@ -115,6 +128,17 @@ if __name__ == "__main__":
     parser.add_argument("--enable_deepcache", action="store_true")
     args = parser.parse_args()
 
-    config = OmegaConf.load(args.unet_config_path)
+    print("Arguments received:")
+    for arg, value in vars(args).items():
+        print(f"  {arg}: {value}")
 
-    main(config, args)
+    config = OmegaConf.load(args.unet_config_path)
+    print("Loaded config:")
+    print(config)
+
+    try:
+        main(config, args)
+    except Exception as e:
+        print(f"Exception occurred during inference: {e}")
+        traceback.print_exc()
+        raise
